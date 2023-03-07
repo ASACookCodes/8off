@@ -5,7 +5,7 @@ module EightOff where
  
  import Data.List
  import System.Random
- 
+
  --Type definitions for the game's assets.
  data Suit = Hearts | Clubs | Spades | Diamonds
              deriving (Eq, Show)
@@ -19,11 +19,7 @@ module EightOff where
  type EOBoard = (Foundations,Columns,Reserve)
  
  --pack, a pack of cards
- --plis, a list of pips
- --slis, a list of suits
- plis = [Ace .. King]
- slis = [Hearts,Clubs,Spades,Diamonds]
- pack = [(p,s)|p<-plis,s<-slis]
+ pack = [(p,s)|p<-[(Ace)..(King)],s<-[Hearts,Clubs,Spades,Diamonds]]
  
  --pCard, takes a card and returns its predecessor
  --x, the card who's predecessor we wish to find
@@ -74,7 +70,6 @@ module EightOff where
     |otherwise = parseDeck t ((insertCard h hlis):tlis)
  
  -- insertCard, takes a card, a deck, and returns the card inserted onto the head of the deck
- -- Auxiliary function to makeColumns
  -- c, the card to be inserted
  -- clis, the deck, or list of cards
  insertCard :: Card -> Deck -> Deck
@@ -87,7 +82,7 @@ module EightOff where
  parseColumns col = (filter (\n -> (length n)==6) col)
 
  -- parseReserve, extracts the reserve list from the parsed deck
- -- col, the columns we want, in this case just one so we only want the head, filtered from the parsed deck
+ -- col, the columns we want, in this case we return a deck so we only want the head, filtered from the parsed deck
  -- the single deck of length 4 is returned.
  parseReserve :: Columns -> Deck
  parseReserve col = head (filter (\n -> (length n)==4) col)
@@ -95,27 +90,18 @@ module EightOff where
  --eODeal, takes a seed for randomisation as an Int, and returns a shuffled EOboard
  eODeal :: Int -> EOBoard
  eODeal seed = ([], parseColumns (parseDeck (shuffle pack seed) []), parseReserve (parseDeck (shuffle pack seed) []))
- 
- --toFoundations, takes an EOBoard and puts all immediately available Aces in the foundations, to give the autoPlay function something to work with.
- --This is so we can immediately return the board as it is if no Aces are at the heads of the columns.
- --(f,c,r), the board broken down into its elements
- toFoundations :: EOBoard -> EOBoard
- toFoundations (f,c,r) 
-   | acesToFoundations == [] = (f,c,r)
-   | otherwise = autoPlay(f++acesToFoundations,(filterOutCards acesToFoundations c),(filter(\n -> (notElem n acesToFoundations)) r))
-    where acesToFoundations = [ace|ace<-(getHeadsOfColumns c)++r,isAce(ace)]
- 
- --autoPlay takes an EOboard and essentially plays the game as far as it can. If there are no aces immediately available it looks for any successors of foundation cards in the columns.
+
+ --toFoundations takes an EOboard and essentially plays the game as far as it can. If there are no aces immediately available it looks for any successors of foundation cards in the columns.
  --If there are no Aces or successors at the heads of the columns or in the reserves, then just return the board as is.
- --acesToFoundations, a list comprehension that compiles 
- autoPlay :: EOBoard -> EOBoard
- autoPlay (f,[],[]) = (f,[],[])
- autoPlay ([],c,r) = ([],c,r)
- autoPlay (f,[],r) = (f,[],r)
- autoPlay (f,c,[]) = (f,c,[])
- autoPlay (f,c,r)
-   | acesToFoundations == [] = if successorsToFoundations == [] then (f,c,r) else autoPlay (successorsToFoundations,filterOutCards successorsToFoundations c,(filter(\n -> (notElem n successorsToFoundations)) r))
-   | otherwise = autoPlay(f++acesToFoundations,(filterOutCards acesToFoundations c),(filter(\n -> (notElem n acesToFoundations)) r))
+ --Otherwise, put the aces/successor cards into the foundations as appropriate, and filter them out of the columns/reserves
+ --Any newly uncovered Aces are appended to the foundations, and any successor cards replace their predecessor cards in the foundation.
+ --acesToFoundations, a list comprehension that compiles any aces at the heads of the columns
+ --successorsToFoundations a list comprehension that compiles any cards whose predecessor cards are currently present in the foundations
+ toFoundations :: EOBoard -> EOBoard
+ toFoundations (f,[],[]) = (f,[],[]) -- The game is complete
+ toFoundations (f,c,r)
+   | acesToFoundations == [] = if successorsToFoundations == [] then (f,c,r) else toFoundations (successorsToFoundations,filterOutCards successorsToFoundations c,(filter(\n -> (notElem n successorsToFoundations)) r))
+   | otherwise = toFoundations (f++acesToFoundations,(filterOutCards acesToFoundations c),(filter(\n -> (notElem n acesToFoundations)) r))
     where acesToFoundations = [ace|ace<-(getHeadsOfColumns c)++r,isAce(ace)]
           successorsToFoundations = [cards|cards<-(getHeadsOfColumns c)++r, elem cards (map (\n -> sCard(n)) f)]
  
@@ -127,15 +113,157 @@ module EightOff where
  filterOutCards [] [] = []
  filterOutCards [] col = col
  filterOutCards clis [] = []
- filterOutCards clis ([]:tlis) = filterOutCards clis tlis
+ filterOutCards clis ([]:tlis) = ([]:filterOutCards clis tlis)
  filterOutCards clis ((h:t):tlis)
    | elem h clis = (t:filterOutCards clis tlis)
    | otherwise = ((h:t):filterOutCards clis tlis)
 
+ --getHeadsOfColumns, takes the columns and returns a deck containing the heads of each columns
+ --(hlist:tlist)the columns split into the head column and the rest of the columns.
  getHeadsOfColumns :: Columns -> Deck
  getHeadsOfColumns [] = []
  getHeadsOfColumns ([]:tlist) = getHeadsOfColumns tlist
  getHeadsOfColumns (hlist:tlist) = ((head hlist):getHeadsOfColumns tlist)
+ 
+
+ --findMoves, takes a board and returns a list of possible boards after making all possible moves
+ findMoves :: EOBoard -> [EOBoard]
+ findMoves (f,[],[]) = []
+ findMoves board = ((columnsToReserveMoves board)++(reserveToColumnsMoves board)++(columnsToFoundationMoves board)++(reserveToFoundationMoves board)++(columnsToColumnsMoves board))
+ 
+ --columnsToReserveMove, takes an EOBoard and returns all the boards where the top of a column has moved to the reserve
+ columnsToReserveMoves :: EOBoard -> [EOBoard]
+ columnsToReserveMoves (_,[],_)= []
+ columnsToReserveMoves (f,c,r)
+   | length(r) == 8 = []
+   | otherwise = [(f,(filterOutCards [cmoved] c),r++[cmoved])|cmoved<-(getHeadsOfColumns notEmptyCols)]
+    where notEmptyCols = (filter(\n -> n/=[]) c)
+ 
+ --columnsToReserveMove, takes an EOBoard and returns all the boards where the top of a column has moved to the reserve
+ reserveToColumnsMoves :: EOBoard -> [EOBoard]
+ reserveToColumnsMoves (_,_,[]) = []
+ reserveToColumnsMoves (f,c,r) = [(f,(filter(\n -> n/=(tail cmoved)) c)++[cmoved],(filter(\n -> n/=(head cmoved)) r))|cmoved<-appendedCols++startedCols]
+    where emptyCols = (filter(\n -> n==[]) c)
+          notEmptyCols = (filter(\n -> n/=[]) c)
+          freecols = (filter(\n -> fst((head n))/=Ace) notEmptyCols) -- Free columns are only those that do not have an Ace card on top
+          appendedCols = [(hcard:(hcol:tcol))|hcard<-r,(hcol:tcol)<-freecols,hcard==pCard(hcol)]
+          startedCols = if (length emptyCols > 0) then [[startCard]|startCard<-(filter (\n -> isKing(n)==True) r)] else []
+ 
+ --colunmsToFoundationMoves - takes an EOBoard and returns all the boards where the top of a column has moved to the foundations
+ columnsToFoundationMoves :: EOBoard -> [EOBoard]
+ columnsToFoundationMoves (_,[],_)=[]
+ columnsToFoundationMoves (f,c,r) = [(putFoundation cmoved f,filterOutCards [cmoved] c,r)|cmoved<-(filter(\n -> isAce(n) || (elem (pCard n) f)) (getHeadsOfColumns c))]
+ 
+ --putFoundation, takes a card and puts it in the foundations
+ putFoundation :: Card -> Foundations -> Foundations
+ putFoundation card f
+   | isAce(card) = f++[card]
+   | otherwise = [card]++filter(\n -> n/=pCard(card)) f
+
+ --reserveToFoundationMoves, takes an EOBoard and returns all the boards where a reserve has moved to the foundations
+ reserveToFoundationMoves :: EOBoard -> [EOBoard]
+ reserveToFoundationMoves (_,_,[]) = []
+ reserveToFoundationMoves (f,c,r) = [(putFoundation rmoved f,c,filter(\n -> n/=rmoved) r)|rmoved<-filter(\n -> isAce(n) || (elem (pCard n) f)) r]
+ 
+ --columnsToColumnsMoves, takes an EOBoard and returns all the boards where the tops of columns have moved to other tops of columns
+ columnsToColumnsMoves :: EOBoard -> [EOBoard]
+ columnsToColumnsMoves (_,[],_)=[]
+ columnsToColumnsMoves (f,c,r) = [(f,(filterOutCards [head cmoved] (filter(\n -> n/=(tail cmoved))c))++[cmoved],r)|cmoved<-appendedCols++startedCols]
+    where emptyCols = (filter(\n -> n==[]) c)
+          notEmptyCols = (filter(\n -> n/=[]) c)
+          freecols = (filter(\n -> fst((head n))/=Ace) notEmptyCols)
+          appendedCols = [(hcard:(hcol:tcol))|hcard<-(getHeadsOfColumns notEmptyCols),(hcol:tcol)<-freecols,hcard==pCard(hcol)]
+          startedCols = if (length emptyCols > 0) then [[startCard]|startCard<-(filter (\n -> isKing(n)==True) (getHeadsOfColumns freecols))] else []
+
+ --chooseMove, takes an EOBoard and returns the best EOBoard from the list of possible moves
+ --This is done by zipping all the possible EOBoards with a weight, based on how good that move is
+ chooseMove :: EOBoard -> Maybe (Foundations,Columns,Reserve)
+ chooseMove (f,[[],[],[],[],[],[],[],[]],[]) = Just (f,[[],[],[],[],[],[],[],[]],[])
+ chooseMove (f,c,r)
+   | (findMoves (f,c,r)) == [] = Nothing
+   | otherwise = Just (fst(maximumBy (\(_,x) (_,y) -> compare x y) (weighMoves (findMoves (f,c,r)) (f,c,r) []))) --Best move will be sorted to be at the head of the returned EOBList
+ 
+ --weighMoves, takes a list of EOBoards, the current EOBoard, and zips the list of boards with an integer based on comparing the current board with the possible boards
+ weighMoves :: [EOBoard] -> EOBoard -> [((Foundations,Columns,Reserve),Int)] -> [((Foundations,Columns,Reserve),Int)]
+ weighMoves [] (f,c,r) weighedList = weighedList --We've weight everything
+ weighMoves ((movedf,movedc,movedr):tBoard) (currentf,currentc,currentr) weighedList
+   | (length (filter(\n -> fst(n)==Ace) movedf)) > (length (filter(\n -> fst(n)==Ace) currentf)) = weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [6])++weighedList --Ace has been moved to foundations, zip it with 4, keep it in moveLis, call weighMoves on tail
+   | (length (filter(\n -> fst(n)==King) movedr)) < (length (filter(\n -> fst(n)==King) currentr)) = weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [5])++weighedList -- A new column has been created
+   | movedf/=currentf = weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [4])++weighedList --A card has moved to the foundations
+   | ((length movedr) < 4) && (movedr/=currentr) = weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [3])++weighedList --Reserves have not more than three cards
+   | (movedc/=currentc) && (movedr==currentr) && (movedf==currentf) = weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [2])++weighedList --A card has moved from column to column
+   | otherwise = if (reserveToColumnsMoves (movedf,movedc,movedr))/=[] then weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [1])++weighedList else weighMoves tBoard (currentf,currentc,currentr) (zip [(movedf,movedc,movedr)] [0])++weighedList --Look ahead to determine whether moving a column to a reserve will allow us to make a reserveToColumn move afterwards
+ 
+ 
+ --eOExpt, plays 100 games of eight off, returns the mean score, and the number of wins
+ eOExpt :: Int -> (Int,Int)
+ eOExpt seed = (meanScore rlis [],numberOfWins rlis 0)
+    where rlis = take 100 (randoms (mkStdGen seed) :: [Int])
+ 
+ --meanScore, takes a list of seeds, plays games for all the seeds, and returns the mean score from those games
+ meanScore :: [Int] -> [Int] -> Int
+ meanScore [] scoreLis = div (foldr (+) 0 scoreLis) (length scoreLis)
+ meanScore (hseed:tlis) scoreLis = meanScore tlis ((eOGame hseed):scoreLis)
+ 
+ --numberOfWins, takes a list of seeds, plays games for all the seeds, and returns the number of games that result in a win
+ numberOfWins :: [Int] -> Int -> Int
+ numberOfWins [] winList = winList
+ numberOfWins (hseed:tlist) winList
+   | eOGame hseed == 52 = numberOfWins tlist (winList + 1)
+   | otherwise = numberOfWins tlist winList
+ 
+ --eOGame, takes a seed, and returns a score
+ eOGame :: Int -> Int
+ eOGame seed = playGameToCompletion (eODeal seed) []
+ 
+ --playGameToCompletion, takes a starting board, and a list of moves made so far, and returns a score
+ playGameToCompletion :: EOBoard -> [EOBoard] -> Int
+ playGameToCompletion board moveHistory
+   | chooseMove board == Nothing = calculateScore board
+   | otherwise = if elem (resMaybe (chooseMove board)) moveHistory then calculateScore board else playGameToCompletion (resMaybe (chooseMove board)) ((resMaybe (chooseMove board)):moveHistory) -- Do not allow the game to continue if we have made a move that we have already made before
+ 
+ --calculateScore, takes an EOBoard, complete or uncomplete, and returns its score
+ calculateScore :: EOBoard -> Int
+ calculateScore (f,c,r) = foldr (+) 0 [(countBackCards n 0)|n<-f]
+ 
+ --countBackCards, takes a card in the foundation, and finds the number of cards underneath it
+ countBackCards :: Card -> Int -> Int
+ countBackCards (Ace,_) foundationHeight = (foundationHeight + 1)
+ countBackCards topCard foundationHeight = countBackCards (pCard(topCard)) (foundationHeight + 1)
+
+ --Maybe helper functions
+ isJust :: (Maybe a) -> Bool
+ isJust (Just _) = True
+ isJust Nothing = False
+
+ resMaybe :: (Maybe a) -> a
+ resMaybe (Just x) = x
+
+ --Display an EOBoard in a neat format
+ displayEOB :: EOBoard -> IO String
+ displayEOB (fnds,cols,res) = do
+  let colStr = colsToString cols
+  putStr "EOBoard\nFoundations  "
+  putStrLn (show fnds)
+  putStr  "Columns"
+  putStr colStr
+  putStr "\n\nReserve     "
+  putStrLn (show res)
+  putStr "\n---------------------------------------------\n"
+  return ""
+
+ colsToString :: Columns->String -- prepare String to print columns on separate lines
+ colsToString cols =
+  foldr (++) "" ["\n             "++(show col) |col<-cols]
+
+
+ displayEOBList :: [EOBoard]-> IO String
+ displayEOBList eobl =  -- @ notation doesn't seem to work correctly
+  do
+   if (null eobl) then do (return "")
+                  else do
+                        displayEOB (head eobl)
+                        displayEOBList (tail eobl)
 
 --mergesort
 --We make each item in a list into a sublist of length 1
